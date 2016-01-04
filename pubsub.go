@@ -8,8 +8,8 @@ type pubSub struct {
 	// Operations
 	newsub chan subscribeOp
 	pub    chan interface{}
-	close  chan struct{}
 	delsub chan chan interface{}
+	close  chan struct{}
 
 	lastPublication interface{}
 
@@ -28,11 +28,14 @@ func New(cap int) *pubSub {
 	ps := &pubSub{
 		subscribers:     make([]chan interface{}, 0, cap),
 		newsub:          make(chan subscribeOp),
-		lastPublication: nil,
+		pub:             make(chan interface{}),
+		delsub:          make(chan chan interface{}),
 		close:           make(chan struct{}),
+		lastPublication: nil,
 	}
 
 	go func() {
+		defer log.Println("Loop closed")
 		for {
 			select {
 			case op := <-ps.newsub:
@@ -71,7 +74,6 @@ func New(cap int) *pubSub {
 				for _, suber := range ps.subscribers {
 					close(suber)
 				}
-				log.Println("pubSub closed!")
 				break
 			}
 		}
