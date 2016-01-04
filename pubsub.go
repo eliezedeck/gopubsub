@@ -8,7 +8,7 @@ type pubSub struct {
 	// Operations
 	newsub chan subscribeOp
 	pub    chan interface{}
-	delsub chan chan interface{}
+	delsub chan (<-chan interface{})
 	close  chan struct{}
 
 	lastPublication interface{}
@@ -29,7 +29,7 @@ func New(cap int) *pubSub {
 		subscribers:     make([]chan interface{}, 0, cap),
 		newsub:          make(chan subscribeOp),
 		pub:             make(chan interface{}),
-		delsub:          make(chan chan interface{}),
+		delsub:          make(chan (<-chan interface{})),
 		close:           make(chan struct{}),
 		lastPublication: nil,
 	}
@@ -54,8 +54,9 @@ func New(cap int) *pubSub {
 				l := len(ps.subscribers)
 				for i := 0; i < l; i++ {
 					if ps.subscribers[i] == c {
-						ps.subscribers = append(ps.subscribers[:i], ps.subscribers[i+1:]...)
-						log.Println("Removed subscriber at index", i)
+						// Uses the technique described here: https://github.com/golang/go/wiki/SliceTricks
+						// This is used as a pointer set, so it's not like the ordinary case
+						ps.subscribers, ps.subscribers[len(ps.subscribers)-1] = append(ps.subscribers[:i], ps.subscribers[i+1:]...), nil
 						break
 					}
 				}
@@ -110,7 +111,7 @@ func (ps *pubSub) Publish(data interface{}) {
 
 // Unsubscribe removes the given channel `c` from the list of subscribers. Note
 // that `c` must have been returned by the Subscribe() API call.
-func (ps *pubSub) Unsubscribe(c chan interface{}) {
+func (ps *pubSub) Unsubscribe(c <-chan interface{}) {
 	ps.delsub <- c
 }
 
