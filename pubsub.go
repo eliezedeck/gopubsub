@@ -66,7 +66,13 @@ func New(cap int) *pubSub {
 
 				ps.lastPublication = p
 				for _, suber := range ps.subscribers {
-					suber <- p
+					select {
+					case suber <- p:
+						// Message consumed by subscriber
+					default:
+						// Subscriber is not listening
+						break
+					}
 				}
 			case <-ps.close:
 				// Closed
