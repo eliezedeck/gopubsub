@@ -83,7 +83,7 @@ func New(cap int) *pubSub {
 // Subscribe gets you subscribed to this pubSub channel and returns a chan on
 // which you can listen for updates. The `getinitial` is used to get the very
 // last entry on this channel prior to getting the subsequent updates.
-func (ps *pubSub) Subscribe(getinitial bool) chan<- interface{} {
+func (ps *pubSub) Subscribe(getinitial bool) <-chan interface{} {
 	// buffer set to one so that the pubSub loop will be able to send to this in
 	// case of a getinitial == true without blocking
 	c := make(chan interface{}, 1)
