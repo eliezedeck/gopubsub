@@ -1,0 +1,125 @@
+package gopubsub
+
+import "log"
+
+// PubSub is the main struct for the implementation of this package. Use New()
+// instead of using this directly.
+type PubSub struct {
+	subscribers []chan interface{}
+
+	// Operations
+	newsub chan subscribeOp
+	pub    chan interface{}
+	close  chan struct{}
+	delsub chan chan interface{}
+
+	lastPublication interface{}
+
+	closed bool
+}
+
+type subscribeOp struct {
+	getInitial bool
+	channel    chan interface{}
+}
+
+// New creates a pointer to a PubSub. PubSub uses a []chan interface{} to keep
+// the list of subscribers, and the `cap` parameter is the initial headroom, not
+// the final number of subscribers possible. It can go as high as you need to.
+func New(cap int) *PubSub {
+	ps := &PubSub{
+		subscribers:     make([]chan interface{}, 0, cap),
+		newsub:          make(chan subscribeOp),
+		lastPublication: nil,
+		close:           make(chan struct{}),
+	}
+
+	go func() {
+		for {
+			select {
+			case op := <-ps.newsub:
+				// New Subscriber
+				//
+
+				ps.subscribers = append(ps.subscribers, op.channel)
+				if op.getInitial && ps.lastPublication != nil {
+					// subscriber wants the last published data
+					op.channel <- ps.lastPublication
+				}
+			case c := <-ps.delsub:
+				// Remove Subscriber
+				//
+
+				l := len(ps.subscribers)
+				for i := 0; i < l; i++ {
+					if ps.subscribers[i] == c {
+						ps.subscribers = append(ps.subscribers[:i], ps.subscribers[i+1:]...)
+						log.Println("Removed subscriber at index", i)
+						break
+					}
+				}
+			case p := <-ps.pub:
+				// Publish
+				//
+
+				ps.lastPublication = p
+				for _, suber := range ps.subscribers {
+					suber <- p
+				}
+			case <-ps.close:
+				// Closed
+				//
+
+				for _, suber := range ps.subscribers {
+					close(suber)
+				}
+				log.Println("PubSub closed!")
+				break
+			}
+		}
+	}()
+
+	return ps
+}
+
+// Subscribe gets you subscribed to this PubSub channel and returns a chan on
+// which you can listen for updates. The `getinitial` is used to get the very
+// last entry on this channel prior to getting the subsequent updates.
+func (ps *PubSub) Subscribe(getinitial bool) chan<- interface{} {
+	// buffer set to one so that the PubSub loop will be able to send to this in
+	// case of a getinitial == true without blocking
+	c := make(chan interface{}, 1)
+
+	r := subscribeOp{
+		getInitial: getinitial,
+		channel:    c,
+	}
+
+	ps.newsub <- r
+	return c
+}
+
+// Publish is used to publish the given `data` to all subscribers. Not that the
+// `data` must not be nil or there will be panic.
+func (ps *PubSub) Publish(data interface{}) {
+	if data == nil {
+		panic("Cannot Publish() nil. That is equivalent to a channel closure which is invalid.")
+	}
+	ps.pub <- data
+}
+
+// Unsubscribe removes the given channel `c` from the list of subscribers. Note
+// that `c` must have been returned by the Subscribe() API call.
+func (ps *PubSub) Unsubscribe(c chan interface{}) {
+	ps.delsub <- c
+}
+
+// Close is used to dispose of the PubSub. After this call, all the channels
+// that have been distributed from the Subscribe() call will be closed and will
+// thus return the default nil value of the type.
+func (ps *PubSub) Close() {
+	if !ps.closed {
+		ps.closed = true
+		ps.close <- struct{}{}
+	}
+}
